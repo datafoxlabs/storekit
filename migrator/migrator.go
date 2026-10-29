@@ -223,7 +223,10 @@ func (m *Migrator) Run(ctx context.Context, migrations ...*Migration) error {
 				m.logger.ErrorContext(ctx, "failed to record migration success",
 					"migration_id", mig.ID,
 					"error", err)
-				return fmt.Errorf("migration %s executed but failed to record success; inspect database state before retry: %w", mig.ID, err)
+				current := fmt.Errorf("migration %s executed but failed to record success; inspect database state before retry: %w", mig.ID, err)
+				// ContinueOnError may have accumulated failures before this
+				// unsafe-to-retry history write. Never discard their causes.
+				return errors.Join(append(failures, current)...)
 			}
 		}
 
