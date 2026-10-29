@@ -53,7 +53,7 @@ defer store.Close()
 | `GetDB()` | 返回 GORM 连接，不自动应用封装层的重试 |
 | `WithTimeout(ctx, fn)` | 按 `QueryTimeout` 限制调用时间 |
 | `AutoMigrate(models...)` | 执行 GORM 自动迁移 |
-| `RunMigrations` / `RunMigrationsWithOptions` | 执行迁移引擎，保留默认历史表 |
+| `RunMigrations` / `RunMigrationsWithOptions` | 执行迁移引擎；应由宿主独立的 Migration Job 调用（后者需传非空 `*migrator.Options`） |
 | `BulkInsert` / `InBatches` | 按批处理，默认 batch size 为 1000 |
 | `Ping` / `Stats` / `Close` | 健康检查、连接池统计、关闭连接 |
 
@@ -63,6 +63,12 @@ defer store.Close()
 
 `DB()` 和 `WithRetry()` 已在首次发布前移除。直接访问 GORM 使用 `GetDB()`；带重试的操作使用 `Exec()`。
 `Exec()` 在 `InTransaction()` 的 context 中复用事务，不单独重试事务内操作；可重试错误交给外层事务整体回滚后重试。
+
+## Schema 迁移的调用边界
+
+`RunMigrations` / `RunMigrationsWithOptions` 只是封装 `migrator`，**不自动提供跨实例锁或部署排他机制**。建议由独立的单执行者 Migration Job 调用，而不是由多个业务副本同时在启动时触发迁移。迁移执行失败时 `sqlstore` 返回包装了底层错误的 `ErrMigrationFailed`，调用方应中止部署并核查数据库状态。
+
+`main` 中的 [PR #1](https://github.com/datafoxlabs/storekit/pull/1) 已修复迁移历史一致性及错误传播；该修复**尚未包含在已发布的 `migrator/v0.1.0` 和 `sqlstore/v0.1.0` 中**。请区分当前源码与已发布 tag。具体的事务能力、ClickHouse 历史语义及 `ContinueOnError` 行为见 [migrator 使用说明](../migrator/README.md)。
 
 所有存储操作 span 与 GORM span 都使用传入的 TracerProvider，不读取或修改全局 provider。无追踪时传入 `noop.NewTracerProvider()`。宿主负责 provider 的生命周期，`Store.Close` 只关闭数据库连接。
 
