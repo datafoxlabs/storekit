@@ -19,5 +19,5 @@ storekit 是嵌入式库，不定义宿主服务的 SLO。宿主拥有配置、�
 - 对 MySQL/ClickHouse 或自定义 `HistoryStore`，历史写入错误会明确返回，但已经执行的 DDL 仍可能生效。恢复前需要检查 Schema 实际状态，不可无条件重新执行非幂等 SQL。
 - `ContinueOnError` 保留所有先前执行错误：它会继续后续迁移并在完成时返回聚合错误；成功历史写入失败立即中断，但仍保留此前错误链。
 - **不提供跨实例迁移锁。** 迁移应由宿主通过单执行者发布 Job 统一调度；多个应用实例不得同时自动运行迁移。`IsApplied` 不提供互斥语义。崩溃恢复与服务重启需要宿主单独演练。
-- **版本边界：** 上述历史一致性与聚合错误行为对应 [PR #1 合并提交 c7ece647](https://github.com/datafoxlabs/storekit/commit/c7ece647e6d54ae97b8bff68ec08b430bff7865a) 及其后续 `main`，不应套用到已发布的 `migrator/v0.1.0`。发布新 tag 后需要单独核对版本与使用方验收。
+- **版本边界：** 上述事务历史一致性与聚合错误行为描述当前仓库 `main` 的实现，不应直接套用到已发布的 `migrator/v0.1.0`。使用方必须以实际依赖的版本为准，并针对升级执行验收。
 - **验证边界：** `make test-integration` / CI 当前仅选择运行 `TestDriverIntegration`，不要据此断言所有带 `integration` 构建标签的测试均已执行。验证选择器见 [scripts/verify-modules.py](../scripts/verify-modules.py)。
