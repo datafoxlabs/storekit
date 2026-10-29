@@ -4,13 +4,13 @@ package integration_test
 
 import (
 	"context"
-	"sync/atomic"
 	"errors"
 	"io"
 	"log/slog"
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
