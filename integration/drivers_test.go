@@ -347,7 +347,7 @@ func TestAdvisoryMigrationLock(t *testing.T) {
 			const historyTable = "migration_advisory_lock_test"
 			firstEngine := migrator.New(first.GetDB(), log, migrator.WithHistoryTable(historyTable))
 			secondEngine := migrator.New(second.GetDB(), log, migrator.WithHistoryTable(historyTable))
-			t.Cleanup(func() { check(t, first.GetDB().Exec("DROP TABLE IF EXISTS " + historyTable).Error) })
+			t.Cleanup(func() { check(t, first.GetDB().Exec("DROP TABLE IF EXISTS "+historyTable).Error) })
 
 			entered := make(chan struct{})
 			unblock := make(chan struct{})
