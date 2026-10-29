@@ -57,6 +57,6 @@ PostgreSQL/MySQL 的跨实例迁移会话锁见下文；SQLite/ClickHouse 仍由
 
 `Run` 和 `Rollback` 在 PostgreSQL、MySQL 上默认获取数据库原生会话锁，并在整个历史检查、DDL 与历史记录写入期间保持锁；获取失败不会继续执行迁移。PostgreSQL 使用数据库级 advisory lock，MySQL 使用带数据库与历史表标识的 `GET_LOCK`。等待采用 Context 可取消轮询；异常断开锁连接后数据库会自动释放会话锁。
 
-为避免连接池自锁，需要至少两个可用连接（一个固定给锁会话，一个执行迁移）。`MaxOpenConns=1` 会在开始迁移前返回配置错误。锁名按历史表隔离；不同历史表不会相互串行，业务必须避免相互冲突的迁移 ID 和 Schema 操作。
+锁和迁移 SQL 现在使用同一条由 GORM `Connection` 固定的物理连接，默认关系型 `HistoryStore` 也复用该连接。使用 `MigrationContext` 提供的 DB 时，`MaxOpenConns=1` 不再因锁占用额外连接而自锁；如迁移回调自行使用外部数据库连接池，则应单独配置足够的连接。锁名按历史表隔离；不同历史表不会相互串行。
 
-**限制**：此锁是会话互斥，不是分布式 fencing。如果锁连接在迁移执行过程中丢失，而迁移使用的其他连接仍存活，另一个实例可能获得锁；强可靠的部署必须使用单执行者发布编排或具备 fencing 的外部协调。SQLite 与 ClickHouse 目前没有内置跨进程锁，仍要求宿主保证单执行者。当前实现不会自动重放不确定提交结果。
+**限制**：锁与内置迁移操作处于同一个物理会话，锁连接失效后这些操作无法自动切换到其他连接继续执行。PostgreSQL 事务内的 DDL 会随连接断开回滚；MySQL 已提交的 DDL 仍需通过幂等迁移或人工恢复。自定义 `HistoryStore` 及调用方在 `Up`/`Down` 中打开的外部连接不受此会话约束，因此它仍不构成通用分布式 fencing。SQLite/ClickHouse 需要外部单执行者编排。
