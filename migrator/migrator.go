@@ -137,9 +137,9 @@ func New(db *gorm.DB, logger *slog.Logger, opts ...Option) *Migrator {
 	}
 
 	return &Migrator{
-		db:      db,
-		logger:  logger.With("component", "migrator"),
-		dialect: dialect,
+		db:           db,
+		logger:       logger.With("component", "migrator"),
+		dialect:      dialect,
 		history:      history,
 		historyTable: cfg.historyTable,
 		options:      cfg.options,
