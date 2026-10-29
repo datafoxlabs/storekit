@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"sync/atomic"
 	"errors"
 	"io"
 	"log/slog"
@@ -307,6 +308,113 @@ func TestDriverIntegration(t *testing.T) {
 				check(t, store.GetDB().Exec(table.RenderDropSQL()).Error)
 			}
 
+		})
+	}
+}
+
+// TestAdvisoryMigrationLock exercises independent connection pools against the
+// same live server. A second worker must wait for the first worker to commit
+// its migration and history record, not replay the Up callback.
+func TestAdvisoryMigrationLock(t *testing.T) {
+	for _, fixture := range []struct {
+		name, env string
+		driver    sqlstore.Driver
+	}{
+		{"postgres", "STOREKIT_TEST_POSTGRES_DSN", postgres.Open},
+		{"mysql", "STOREKIT_TEST_MYSQL_DSN", mysql.Open},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			dsn := os.Getenv(fixture.env)
+			if dsn == "" {
+				t.Fatal("integration requires disposable database fixture")
+			}
+			log := slog.New(slog.NewTextHandler(io.Discard, nil))
+			open := func() *sqlstore.Store {
+				t.Helper()
+				cfg := &sqlstore.DatabaseConfig{
+					Type: fixture.name, ConnectionString: dsn, MaxOpenConns: 2,
+					MaxIdleConns: 2, LogLevel: logger.Silent,
+				}
+				store, err := sqlstore.Open(cfg, fixture.driver, log, noop.NewTracerProvider())
+				check(t, err)
+				t.Cleanup(func() { check(t, store.Close()) })
+				return store
+			}
+			first := open()
+			second := open()
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			const historyTable = "migration_advisory_lock_test"
+			firstEngine := migrator.New(first.GetDB(), log, migrator.WithHistoryTable(historyTable))
+			secondEngine := migrator.New(second.GetDB(), log, migrator.WithHistoryTable(historyTable))
+			t.Cleanup(func() { check(t, first.GetDB().Exec("DROP TABLE IF EXISTS " + historyTable).Error) })
+
+			entered := make(chan struct{})
+			unblock := make(chan struct{})
+			var calls atomic.Int32
+			migration := &migrator.Migration{
+				ID: "exclusive_worker",
+				Up: func(ctx context.Context, mg migrator.MigrationContext) error {
+					if calls.Add(1) == 1 {
+						close(entered)
+						select {
+						case <-unblock:
+						case <-ctx.Done():
+							return ctx.Err()
+						}
+					}
+					return nil
+				},
+			}
+			firstDone := make(chan error, 1)
+			go func() { firstDone <- firstEngine.Run(ctx, migration) }()
+			select {
+			case <-entered:
+			case <-ctx.Done():
+				t.Fatal("first worker did not enter migration", ctx.Err())
+			}
+
+			// A waiting worker's Context must cancel without entering Up.
+			waitCtx, stopWaiting := context.WithTimeout(ctx, 200*time.Millisecond)
+			defer stopWaiting()
+			err := secondEngine.Run(waitCtx, migration)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("expected cancelled lock wait, got %v", err)
+			}
+			if got := calls.Load(); got != 1 {
+				t.Fatalf("second worker entered Up while first held lock: %d", got)
+			}
+
+			// Retry the waiting worker; it must observe the committed history
+			// after the first releases the advisory lock and skip the Up body.
+			secondDone := make(chan error, 1)
+			go func() { secondDone <- secondEngine.Run(ctx, migration) }()
+			select {
+			case err := <-secondDone:
+				t.Fatalf("second worker finished before lock release: %v", err)
+			case <-time.After(200 * time.Millisecond):
+			}
+			close(unblock)
+			select {
+			case err := <-firstDone:
+				check(t, err)
+			case <-ctx.Done():
+				t.Fatal("first worker timed out", ctx.Err())
+			}
+			select {
+			case err := <-secondDone:
+				check(t, err)
+			case <-ctx.Done():
+				t.Fatal("second worker timed out", ctx.Err())
+			}
+			if got := calls.Load(); got != 1 {
+				t.Fatalf("migration Up ran %d times, expected exactly once", got)
+			}
+			history, err := firstEngine.GetHistory(ctx, 0)
+			check(t, err)
+			if len(history) != 1 || !history[0].Success {
+				t.Fatalf("unexpected migration history: %+v", history)
+			}
 		})
 	}
 }
