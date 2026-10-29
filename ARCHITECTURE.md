@@ -1,7 +1,7 @@
 # storekit Architecture
 
 storekit 提供 ClickHouse 建表 DSL、迁移引擎和 GORM 存储封装。仓库没有应用入口、业务 schema 或根 Go module。
-三个库的已发布版本和安装命令见 [README](README.md#使用)。代码边界由各 module 的 `go.mod` 和 `scripts/verify-modules.py` 的依赖检查持有。
+三个库的已发布版本和安装命令见 [README](README.md#安装)。代码边界由各 module 的 `go.mod` 和 `scripts/verify-modules.py` 的依赖检查持有。
 
 | Module | 职责 | 仓库内依赖 |
 |---|---|---|
