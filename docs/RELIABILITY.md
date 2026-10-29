@@ -23,6 +23,6 @@ storekit 是嵌入式库，不定义宿主服务的 SLO。宿主拥有配置、�
 ### PostgreSQL / MySQL 迁移会话锁
 
 - 在 `Run` 和 `Rollback` 开始时获取数据库会话锁，锁住历史检查、迁移执行和记录持久化路径；锁等待可由 Context 中止。
-- 锁连接由数据库连接池独立固定，执行迁移需要其他连接。连接池最大值为 1 时拒绝运行，避免自锁。
-- 此锁没有跨连接的 fencing token：若锁会话意外断开，正在执行的 SQL 仍可能在另一连接上继续。生产多副本部署仍优先采用单实例迁移 Job，严禁将锁视为分布式 exactly-once 保证。
+- 锁与内置迁移 SQL、默认关系型历史记录使用同一条固定物理连接。只使用 `MigrationContext` 的回调允许 `MaxOpenConns=1`；自行打开外部连接的回调可能需要更大的池。
+- 已补锁会话强制断连后的失败闭环测试：默认内置操作无法在其他连接上继续；PostgreSQL 事务型 DDL 回滚，MySQL 已提交 DDL 需要显式恢复。自定义 `HistoryStore` 与回调自行建立的外部连接仍不具备 fencing，生产多副本部署优先采用单执行者迁移 Job。
 - SQLite / ClickHouse 的跨实例迁移继续需要外部编排；MySQL / ClickHouse 的非事务 DDL 遇到中途崩溃仍需人工核对数据库状态。
