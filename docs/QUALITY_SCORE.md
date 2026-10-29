@@ -11,7 +11,7 @@
 | 驱动隔离 | make test | 核心及各单驱动的包依赖和二进制依赖 |
 | Harness 与 Spec 完整性 | make check-harness | 官方固定 revision 校验器；不代表运行时 Hook 信任 |
 | 远端持续检查 | .github/workflows/verify.yml | 以具体 workflow/job 结果为准，配置存在不等于 CI 通过 |
-| 公开版本 | [已发布版本与安装](../README.md#使用) | schema v0.3.0、migrator v0.1.0、sqlstore v0.1.0 已发布 |
+| 公开版本 | [已发布版本与安装](../README.md#安装) | schema v0.3.0、migrator v0.1.0、sqlstore v0.1.0 已发布 |
 | 实际使用方 | 使用方验收记录 | 生产接入尚未由本仓库验收 |
 
 修改相应 owning source 后重新执行相关入口；新增服务端测试须检查 `scripts/verify-modules.py` 的 `-run` 选择器与 CI 实际测试日志。禁止用历史成功覆盖当前失败。默认 JIT 的 ClickHouse ARM 稳定性

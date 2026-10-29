@@ -64,11 +64,13 @@ defer store.Close()
 `DB()` 和 `WithRetry()` 已在首次发布前移除。直接访问 GORM 使用 `GetDB()`；带重试的操作使用 `Exec()`。
 `Exec()` 在 `InTransaction()` 的 context 中复用事务，不单独重试事务内操作；可重试错误交给外层事务整体回滚后重试。
 
-## Schema 迁移的调用边界
+## Schema 迁移
 
-`RunMigrations` / `RunMigrationsWithOptions` 只是封装 `migrator`，**不自动提供跨实例锁或部署排他机制**。建议由独立的单执行者 Migration Job 调用，而不是由多个业务副本同时在启动时触发迁移。迁移执行失败时 `sqlstore` 返回包装了底层错误的 `ErrMigrationFailed`，调用方应中止部署并核查数据库状态。
+`RunMigrations(ctx, migrations...)` 和 `RunMigrationsWithOptions(ctx, opts, migrations...)` 用于执行数据库结构迁移。它们不负责跨实例排他控制；推荐由部署流程的**单执行者 Migration Job** 调用，而非由所有应用副本同时触发。
 
-`main` 中的 [PR #1](https://github.com/datafoxlabs/storekit/pull/1) 已修复迁移历史一致性及错误传播；该修复**尚未包含在已发布的 `migrator/v0.1.0` 和 `sqlstore/v0.1.0` 中**。请区分当前源码与已发布 tag。具体的事务能力、ClickHouse 历史语义及 `ContinueOnError` 行为见 [migrator 使用说明](../migrator/README.md)。
+迁移失败时，接口返回包装了 `ErrMigrationFailed` 的错误，调用方可以通过 `errors.Is` 检查。对于 MySQL 和 ClickHouse 的非事务 DDL，应先核查数据库实际状态，再决定是否重试。
+
+迁移历史一致性和 `ContinueOnError` 的具体语义由实际使用的 `migrator` 版本决定。已发布的 `v0.1.0` 与当前仓库源码在错误处理方面存在差异；详情见 [migrator 使用指南](../migrator/README.md)。
 
 所有存储操作 span 与 GORM span 都使用传入的 TracerProvider，不读取或修改全局 provider。无追踪时传入 `noop.NewTracerProvider()`。宿主负责 provider 的生命周期，`Store.Close` 只关闭数据库连接。
 
@@ -93,9 +95,9 @@ store := sqlstoretest.New(t, sqlstoretest.WithModels(&User{}))
 
 不再由应用专有环境变量选择数据库，也不读取 `SQLITE_INMEMORY`。`sqlstoretest` 为测试便利会导入三个测试驱动，生产程序不要导入此包。
 
-## API 迁移
+## 从旧接口迁入
 
-以下入口从未在 storekit 正式发布，不提供旧名别名：
+如果从先前的内部封装迁入，可以按下表更新 API；这些旧入口不是 storekit 的公开兼容承诺：
 
 | 迁入时入口 | 当前入口 |
 |---|---|
@@ -108,4 +110,4 @@ store := sqlstoretest.New(t, sqlstoretest.WithModels(&User{}))
 | `sqlstore.WithModels` / `WithTruncation` | `sqlstoretest` 下同名选项 |
 | 包级 `sqlstore.StartSpan` | 封装内部使用注入 provider；宿主自建 span 使用自己的 tracer |
 
-迁移宿主时，应显式保留原 SQLite 路径、测试数据库选择及连接参数；使用生成式 ClickHouse DDL 的宿主还需显式指定原时区。历史表与迁移目标的变化见 [migrator](../migrator/README.md)。新旧 module 路径的类型不互换。本轮没有修改现有应用的依赖或数据库。
+迁移宿主时，应显式保留原 SQLite 路径、测试数据库选择及连接参数；使用生成式 ClickHouse DDL 的宿主还需显式指定原时区。历史表与迁移目标的配置见 [migrator](../migrator/README.md)。不同 module 路径下的类型不能直接互换。

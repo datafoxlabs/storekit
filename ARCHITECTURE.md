@@ -1,7 +1,7 @@
 # storekit Architecture
 
 storekit 提供 ClickHouse 建表 DSL、迁移引擎和 GORM 存储封装。仓库没有应用入口、业务 schema 或根 Go module。
-三个库的已发布版本和安装命令见 [README](README.md#使用)。代码边界由各 module 的 `go.mod` 和 `scripts/verify-modules.py` 的依赖检查持有。
+三个库的已发布版本和安装命令见 [README](README.md#安装)。代码边界由各 module 的 `go.mod` 和 `scripts/verify-modules.py` 的依赖检查持有。
 
 | Module | 职责 | 仓库内依赖 |
 |---|---|---|
@@ -21,7 +21,7 @@ flowchart TD
     Tests --> Schema
 ```
 
-**运行职责分界：** `migrator` 负责迁移执行与历史记录的错误传播；部署编排由宿主负责。一个数据库同一时间只能由一个迁移执行者操作（建议独立 Migration Job），`migrator` 不含跨进程会话锁。不要将迁移历史查询当作互斥机制。默认关系型历史存储在支持事务的方言上使迁移及成功记录同一事务提交；MySQL/ClickHouse 的非事务 DDL 不提供此保证。具体行为见 [migrator](migrator/README.md#迁移状态一致性与恢复)。
+**运行职责分界：** `migrator` 负责迁移执行与历史记录的错误传播；部署编排由宿主负责。一个数据库同一时间只能由一个迁移执行者操作（建议独立 Migration Job），`migrator` 不含跨进程会话锁。不要将迁移历史查询当作互斥机制。默认关系型历史存储在支持事务的方言上使迁移及成功记录同一事务提交；MySQL/ClickHouse 的非事务 DDL 不提供此保证。具体行为见 [migrator](migrator/README.md)。
 
 生产库不得依赖 integration 或宿主应用。schema 不带查询语言元数据、宿主配置或时区默认策略。
 sqlstore 核心不导入驱动；宿主显式选用 mysql/postgres/sqlite/clickhouse 子包。
