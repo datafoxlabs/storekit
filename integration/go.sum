@@ -12,7 +12,7 @@ github.com/datafoxlabs/storekit/clickhouse/schema v0.3.1-0.local h1:CPHRjGQf0IKO
 github.com/datafoxlabs/storekit/clickhouse/schema v0.3.1-0.local/go.mod h1:zPO6wtFFKYHxuWm2vMmXCNy3IGLbDHfQ+BhfTxO7yGM=
 github.com/datafoxlabs/storekit/migrator v0.1.1-0.local h1:WmOiPbp118QTHEvoTAjJ2hux/zP7ky8O2j//hMDsMdQ=
 github.com/datafoxlabs/storekit/migrator v0.1.1-0.local/go.mod h1:KzpUqQeBqYd2sJ/vtiSWFKc1N5wuzgNyztD3KwxLlMI=
-github.com/datafoxlabs/storekit/sqlstore v0.1.1-0.local h1:lKyYBs62dVx57wBPsTwP+Yf7a0EKvRBe0311NRtD4Bo=
+github.com/datafoxlabs/storekit/sqlstore v0.1.1-0.local h1:7VHIj89oxO26zm40abpAC8BY1ZJSS+XlV+YZCIyLH7I=
 github.com/datafoxlabs/storekit/sqlstore v0.1.1-0.local/go.mod h1:6VNFCOgTIdN8q9tSz+iuzIyyhqr2tarh0pGIDFPITw0=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
