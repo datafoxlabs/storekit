@@ -8,116 +8,132 @@ import (
 	"fmt"
 	"hash/fnv"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 const migrationLockPollInterval = 50 * time.Millisecond
 
-// acquireMigrationLock serializes Run and Rollback across independent
-// PostgreSQL/MySQL processes connecting to the same database and history table.
-// The lock is session-scoped: its dedicated connection stays pinned until
-// release. Migrations use other pooled connections, so a pool capped at one
-// connection is rejected before locking.
+// withMigrationLock pins one physical database connection for the entire
+// migration. The advisory lock, Up/Down SQL and the built-in relational history
+// store all run on that same session. If the session dies, operations through the
+// migration context cannot silently move to a different connection and continue.
 //
-// SQLite and ClickHouse require single-executor coordination by the host.
-// SQLite has no equivalent portable session advisory lock, and ClickHouse DDL
-// is non-transactional; do not mistake this function for distributed fencing.
-func (m *Migrator) acquireMigrationLock(ctx context.Context) (func() error, error) {
+// A custom HistoryStore may use other connections, and a user callback may
+// explicitly escape its MigrationContext. Those external effects are not fenced.
+// SQLite and ClickHouse still require single-executor deployment coordination.
+func (m *Migrator) withMigrationLock(ctx context.Context, fn func(*Migrator) error) error {
 	dialect := m.dialect.Name()
 	if dialect != "postgres" && dialect != "mysql" {
-		return func() error { return nil }, nil
+		return fn(m)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
 
-	sqlDB, err := m.db.DB()
-	if err != nil {
-		return nil, fmt.Errorf("get database connection pool: %w", err)
-	}
-	if sqlDB.Stats().MaxOpenConnections == 1 {
-		return nil, fmt.Errorf("%s migration lock requires at least two pooled connections (one held by the lock); increase MaxOpenConns", dialect)
-	}
-	conn, err := sqlDB.Conn(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("reserve migration lock session: %w", err)
-	}
-	closeOnError := func(err error) (func() error, error) {
-		return nil, errors.Join(err, conn.Close())
-	}
+	return m.db.WithContext(ctx).Connection(func(connDB *gorm.DB) (runErr error) {
+		key, err := acquireSessionLock(ctx, connDB, dialect, m.historyTable)
+		if err != nil {
+			return fmt.Errorf("failed to acquire migration lock: %w", err)
+		}
+		defer func() {
+			// The caller's Context may have been canceled; lock cleanup still
+			// needs a short independent deadline on the SAME pinned connection.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := releaseSessionLock(connDB.WithContext(cleanupCtx), dialect, key); err != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("failed to release migration lock: %w", err))
+			}
+		}()
 
-	// PostgreSQL advisory locks are scoped to the connected database. MySQL
-	// named locks are server-wide, so include the selected database in its key.
-	key := "storekit:migrator:" + m.historyTable
+		scoped := *m
+		scoped.db = connDB
+		if history, ok := m.history.(*DefaultHistoryStore); ok {
+			scoped.history = history.withDB(connDB)
+		}
+		return fn(&scoped)
+	})
+}
+
+// acquireSessionLock is called on the fixed GORM Connection's physical session.
+// PostgreSQL advisory locks are per database; MySQL named locks are server-wide,
+// so MySQL includes the selected database in the lock identity.
+func acquireSessionLock(ctx context.Context, db *gorm.DB, dialect, historyTable string) (string, error) {
+	key := "storekit:migrator:" + historyTable
 	if dialect == "mysql" {
-		var database sql.NullString
-		if err := conn.QueryRowContext(ctx, "SELECT DATABASE()").Scan(&database); err != nil {
-			return closeOnError(fmt.Errorf("identify MySQL database: %w", err))
+		var selected sql.NullString
+		if err := db.WithContext(ctx).Raw("SELECT DATABASE()").Scan(&selected).Error; err != nil {
+			return "", fmt.Errorf("identify MySQL database: %w", err)
 		}
-		if !database.Valid || database.String == "" {
-			return closeOnError(fmt.Errorf("MySQL migrator requires a selected database for lock scoping"))
+		if !selected.Valid || selected.String == "" {
+			return "", fmt.Errorf("MySQL migrator requires a selected database for lock scoping")
 		}
-		key += ":" + database.String
+		key += ":" + selected.String
 	}
 
-	var postgresKey int64
-	var mysqlKey string
 	if dialect == "postgres" {
 		h := fnv.New64a()
 		_, _ = h.Write([]byte(key))
-		postgresKey = int64(h.Sum64())
+		key = fmt.Sprintf("%d", int64(h.Sum64()))
 	} else {
 		sum := sha256.Sum256([]byte(key))
-		mysqlKey = fmt.Sprintf("storekit:migrator:%x", sum[:20])
+		key = fmt.Sprintf("storekit:migrator:%x", sum[:20])
 	}
 
 	for {
 		if err := ctx.Err(); err != nil {
-			return closeOnError(err)
+			return "", err
 		}
 		var acquired bool
 		if dialect == "postgres" {
-			if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", postgresKey).Scan(&acquired); err != nil {
-				return closeOnError(fmt.Errorf("try PostgreSQL migration advisory lock: %w", err))
-			}
-		} else {
-			var result sql.NullInt64
-			if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, 0)", mysqlKey).Scan(&result); err != nil {
-				return closeOnError(fmt.Errorf("try MySQL migration named lock: %w", err))
+			var result sql.NullBool
+			if err := db.WithContext(ctx).Raw("SELECT pg_try_advisory_lock(CAST(? AS bigint))", key).Scan(&result).Error; err != nil {
+				return "", fmt.Errorf("try PostgreSQL migration advisory lock: %w", err)
 			}
 			if !result.Valid {
-				return closeOnError(fmt.Errorf("MySQL migration GET_LOCK returned NULL"))
+				return "", fmt.Errorf("PostgreSQL migration advisory lock returned NULL")
+			}
+			acquired = result.Bool
+		} else {
+			var result sql.NullInt64
+			if err := db.WithContext(ctx).Raw("SELECT GET_LOCK(?, 0)", key).Scan(&result).Error; err != nil {
+				return "", fmt.Errorf("try MySQL migration named lock: %w", err)
+			}
+			if !result.Valid {
+				return "", fmt.Errorf("MySQL migration GET_LOCK returned NULL")
 			}
 			acquired = result.Int64 == 1
 		}
 		if acquired {
-			break
+			return key, nil
 		}
 		timer := time.NewTimer(migrationLockPollInterval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return closeOnError(ctx.Err())
+			return "", ctx.Err()
 		case <-timer.C:
 		}
 	}
+}
 
-	return func() error {
-		// Release even when the Run context was cancelled. The server also
-		// releases this lock when its owning session is closed.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		var released bool
-		var releaseErr error
-		if dialect == "postgres" {
-			releaseErr = conn.QueryRowContext(cleanupCtx, "SELECT pg_advisory_unlock($1)", postgresKey).Scan(&released)
-		} else {
-			var result sql.NullInt64
-			releaseErr = conn.QueryRowContext(cleanupCtx, "SELECT RELEASE_LOCK(?)", mysqlKey).Scan(&result)
-			released = result.Valid && result.Int64 == 1
+func releaseSessionLock(db *gorm.DB, dialect, key string) error {
+	if dialect == "postgres" {
+		var released sql.NullBool
+		if err := db.Raw("SELECT pg_advisory_unlock(CAST(? AS bigint))", key).Scan(&released).Error; err != nil {
+			return fmt.Errorf("PostgreSQL advisory unlock: %w", err)
 		}
-		if releaseErr == nil && !released {
-			releaseErr = fmt.Errorf("%s migration lock no longer held by the session", dialect)
+		if !released.Valid || !released.Bool {
+			return fmt.Errorf("PostgreSQL migration advisory lock no longer held by session")
 		}
-		return errors.Join(releaseErr, conn.Close())
-	}, nil
+		return nil
+	}
+	var released sql.NullInt64
+	if err := db.Raw("SELECT RELEASE_LOCK(?)", key).Scan(&released).Error; err != nil {
+		return fmt.Errorf("MySQL named lock release: %w", err)
+	}
+	if !released.Valid || released.Int64 != 1 {
+		return fmt.Errorf("MySQL migration named lock no longer held by session")
+	}
+	return nil
 }
