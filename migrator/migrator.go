@@ -27,8 +27,9 @@ type Migrator struct {
 	db      *gorm.DB
 	logger  *slog.Logger
 	dialect Dialect
-	history HistoryStore
-	options *Options
+	history      HistoryStore
+	historyTable string
+	options      *Options
 }
 
 // Options 迁移配置选项
@@ -139,17 +140,30 @@ func New(db *gorm.DB, logger *slog.Logger, opts ...Option) *Migrator {
 		db:      db,
 		logger:  logger.With("component", "migrator"),
 		dialect: dialect,
-		history: history,
-		options: cfg.options,
+		history:      history,
+		historyTable: cfg.historyTable,
+		options:      cfg.options,
 	}
 }
 
 // Run 执行迁移
-func (m *Migrator) Run(ctx context.Context, migrations ...*Migration) error {
+func (m *Migrator) Run(ctx context.Context, migrations ...*Migration) (runErr error) {
 	if len(migrations) == 0 {
 		m.logger.InfoContext(ctx, "no migrations to run")
 		return nil
 	}
+
+	// Lock before EnsureTable and IsApplied to serialize the entire
+	// check / migration / history-write sequence between processes.
+	release, err := m.acquireMigrationLock(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire migration lock: %w", err)
+	}
+	defer func() {
+		if err := release(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("failed to release migration lock: %w", err))
+		}
+	}()
 
 	if err := m.history.EnsureTable(ctx); err != nil {
 		return fmt.Errorf("failed to ensure migration history table: %w", err)
@@ -290,10 +304,20 @@ func (m *Migrator) runSingleMigration(ctx context.Context, mig *Migration) (bool
 }
 
 // Rollback 回滚迁移
-func (m *Migrator) Rollback(ctx context.Context, migrationID string, migration *Migration) error {
-	if migration.Down == nil {
+func (m *Migrator) Rollback(ctx context.Context, migrationID string, migration *Migration) (rollbackErr error) {
+	if migration == nil || migration.Down == nil {
 		return fmt.Errorf("migration %s does not support rollback (no Down function)", migrationID)
 	}
+
+	release, err := m.acquireMigrationLock(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire migration lock for rollback: %w", err)
+	}
+	defer func() {
+		if err := release(); err != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("failed to release migration lock: %w", err))
+		}
+	}()
 
 	m.logger.InfoContext(ctx, "rolling back migration",
 		"migration_id", migrationID)
