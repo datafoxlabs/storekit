@@ -53,6 +53,8 @@ jobs:
           CLICKHOUSE_DB: storekit
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Trust the job checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Install Python
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3
       - run: make test-integration-ci
