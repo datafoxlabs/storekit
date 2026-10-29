@@ -2,6 +2,7 @@ package migrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -161,6 +162,7 @@ func (m *Migrator) Run(ctx context.Context, migrations ...*Migration) error {
 
 	var failedCount int
 	var successCount int
+	var failures []error
 	startTime := time.Now()
 
 	for i, mig := range migrations {
@@ -175,9 +177,11 @@ func (m *Migrator) Run(ctx context.Context, migrations ...*Migration) error {
 				m.logger.ErrorContext(ctx, "failed to check migration status",
 					"migration_id", mig.ID,
 					"error", err)
+				failure := fmt.Errorf("failed to check migration status for %s: %w", mig.ID, err)
 				if !m.options.ContinueOnError {
-					return fmt.Errorf("failed to check migration status for %s: %w", mig.ID, err)
+					return failure
 				}
+				failures = append(failures, failure)
 				failedCount++
 				continue
 			}
@@ -189,30 +193,38 @@ func (m *Migrator) Run(ctx context.Context, migrations ...*Migration) error {
 			}
 		}
 
-		if err := m.runSingleMigration(ctx, mig); err != nil {
+		recordedInTx, err := m.runSingleMigration(ctx, mig)
+		if err != nil {
 			m.logger.ErrorContext(ctx, "migration failed",
 				"migration_id", mig.ID,
 				"description", mig.Description,
 				"error", err)
 
+			failure := fmt.Errorf("migration %s failed: %w", mig.ID, err)
 			if recordErr := m.history.RecordFailure(ctx, mig.ID, mig.Description, err); recordErr != nil {
 				m.logger.ErrorContext(ctx, "failed to record migration failure",
 					"migration_id", mig.ID,
 					"error", recordErr)
+				failure = errors.Join(failure, fmt.Errorf("migration %s failed to record failure: %w", mig.ID, recordErr))
 			}
 
 			failedCount++
-
 			if !m.options.ContinueOnError {
-				return fmt.Errorf("migration %s failed: %w", mig.ID, err)
+				return failure
 			}
+			failures = append(failures, failure)
 			continue
 		}
 
-		if err := m.history.RecordSuccess(ctx, mig.ID, mig.Description); err != nil {
-			m.logger.ErrorContext(ctx, "failed to record migration success",
-				"migration_id", mig.ID,
-				"error", err)
+		// Non-transactional databases and custom history stores cannot be
+		// committed atomically here. A failed write must never look successful.
+		if !recordedInTx {
+			if err := m.history.RecordSuccess(ctx, mig.ID, mig.Description); err != nil {
+				m.logger.ErrorContext(ctx, "failed to record migration success",
+					"migration_id", mig.ID,
+					"error", err)
+				return fmt.Errorf("migration %s executed but failed to record success; inspect database state before retry: %w", mig.ID, err)
+			}
 		}
 
 		successCount++
@@ -227,34 +239,45 @@ func (m *Migrator) Run(ctx context.Context, migrations ...*Migration) error {
 		"failed_count", failedCount,
 		"duration_ms", elapsed.Milliseconds())
 
-	if failedCount > 0 && !m.options.ContinueOnError {
-		return fmt.Errorf("migrations failed: %d failed, %d succeeded", failedCount, successCount)
+	if failedCount > 0 {
+		return fmt.Errorf("migrations failed: %d failed, %d succeeded: %w",
+			failedCount, successCount, errors.Join(failures...))
 	}
 
 	return nil
 }
 
-func (m *Migrator) runSingleMigration(ctx context.Context, mig *Migration) error {
+func (m *Migrator) runSingleMigration(ctx context.Context, mig *Migration) (bool, error) {
 	startTime := time.Now()
-
-	migCtx := newMigrationContext(ctx, m.db, m.dialect, m.logger)
+	recordedInTx := false
 
 	if m.dialect.SupportsTransactions() {
 		err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			txMigCtx := newMigrationContext(ctx, tx, m.dialect, m.logger)
-			return mig.Up(ctx, txMigCtx)
+			if err := mig.Up(ctx, txMigCtx); err != nil {
+				return err
+			}
+			// For the built-in relational history store, commit the DDL and
+			// success marker together. A failed marker rolls back the migration.
+			if history, ok := m.history.(*DefaultHistoryStore); ok {
+				if err := history.withDB(tx).RecordSuccess(ctx, mig.ID, mig.Description); err != nil {
+					return fmt.Errorf("failed to record migration success: %w", err)
+				}
+				recordedInTx = true
+			}
+			return nil
 		})
-
 		if err != nil {
-			return fmt.Errorf("migration failed in transaction: %w", err)
+			return false, fmt.Errorf("migration failed in transaction: %w", err)
 		}
 	} else {
 		m.logger.WarnContext(ctx, "database does not support transactions, running without transaction",
 			"migration_id", mig.ID,
 			"dialect", m.dialect.Name())
 
+		migCtx := newMigrationContext(ctx, m.db, m.dialect, m.logger)
 		if err := mig.Up(ctx, migCtx); err != nil {
-			return fmt.Errorf("migration failed: %w", err)
+			return false, fmt.Errorf("migration failed: %w", err)
 		}
 	}
 
@@ -263,7 +286,7 @@ func (m *Migrator) runSingleMigration(ctx context.Context, mig *Migration) error
 		"migration_id", mig.ID,
 		"duration_ms", elapsed.Milliseconds())
 
-	return nil
+	return recordedInTx, nil
 }
 
 // Rollback 回滚迁移
@@ -275,27 +298,38 @@ func (m *Migrator) Rollback(ctx context.Context, migrationID string, migration *
 	m.logger.InfoContext(ctx, "rolling back migration",
 		"migration_id", migrationID)
 
-	migCtx := newMigrationContext(ctx, m.db, m.dialect, m.logger)
-
+	deletedInTx := false
 	if m.dialect.SupportsTransactions() {
 		err := m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			txMigCtx := newMigrationContext(ctx, tx, m.dialect, m.logger)
-			return migration.Down(ctx, txMigCtx)
+			if err := migration.Down(ctx, txMigCtx); err != nil {
+				return err
+			}
+			if history, ok := m.history.(*DefaultHistoryStore); ok {
+				if err := history.withDB(tx).DeleteMigration(ctx, migrationID); err != nil {
+					return fmt.Errorf("failed to delete migration history: %w", err)
+				}
+				deletedInTx = true
+			}
+			return nil
 		})
-
 		if err != nil {
 			return fmt.Errorf("rollback failed in transaction: %w", err)
 		}
 	} else {
+		migCtx := newMigrationContext(ctx, m.db, m.dialect, m.logger)
 		if err := migration.Down(ctx, migCtx); err != nil {
 			return fmt.Errorf("rollback failed: %w", err)
 		}
 	}
 
-	if err := m.history.DeleteMigration(ctx, migrationID); err != nil {
-		m.logger.ErrorContext(ctx, "failed to delete migration record after rollback",
-			"migration_id", migrationID,
-			"error", err)
+	if !deletedInTx {
+		if err := m.history.DeleteMigration(ctx, migrationID); err != nil {
+			m.logger.ErrorContext(ctx, "failed to delete migration record after rollback",
+				"migration_id", migrationID,
+				"error", err)
+			return fmt.Errorf("migration %s rollback executed but failed to delete history; inspect database state before retry: %w", migrationID, err)
+		}
 	}
 
 	m.logger.InfoContext(ctx, "migration rolled back successfully",
