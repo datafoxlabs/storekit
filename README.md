@@ -44,7 +44,7 @@ func runSchemaMigrations(ctx context.Context, db *gorm.DB, logger *slog.Logger) 
 }
 ```
 
-其中 `context`、`log/slog`、`gorm.io/gorm` 和 `github.com/datafoxlabs/storekit/migrator` 由使用方导入。迁移 ID 必须稳定且避免冲突，失败时应检查数据库实际状态再重试；MySQL/ClickHouse DDL 不保证与历史记录原子提交。详情见 [迁移引擎说明](migrator/README.md#迁移状态一致性与恢复) 和 [可靠性边界](docs/RELIABILITY.md)。
+其中 `context`、`log/slog`、`gorm.io/gorm` 和 `github.com/datafoxlabs/storekit/migrator` 由使用方导入。迁移 ID 必须稳定且避免冲突，失败时应检查数据库实际状态再重试；MySQL/ClickHouse DDL 不保证与历史记录原子提交。详情见 [迁移引擎说明](migrator/README.md) 和 [可靠性边界](docs/RELIABILITY.md)。
 
 ## 验证
 
