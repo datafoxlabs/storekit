@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -34,6 +35,9 @@ func (m *Migrator) withMigrationLock(ctx context.Context, fn func(*Migrator) err
 	return m.db.WithContext(ctx).Connection(func(connDB *gorm.DB) (runErr error) {
 		key, err := acquireSessionLock(ctx, connDB, dialect, m.historyTable)
 		if err != nil {
+			// A lock acquisition statement can succeed server-side before
+			// its response fails. Do not recycle a potentially locked session.
+			discardLockedSession(connDB)
 			return fmt.Errorf("failed to acquire migration lock: %w", err)
 		}
 		defer func() {
@@ -42,6 +46,9 @@ func (m *Migrator) withMigrationLock(ctx context.Context, fn func(*Migrator) err
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := releaseSessionLock(connDB.WithContext(cleanupCtx), dialect, key); err != nil {
+				// Never return a session with an uncertain advisory-lock state
+				// to database/sql's idle connection pool.
+				discardLockedSession(connDB)
 				runErr = errors.Join(runErr, fmt.Errorf("failed to release migration lock: %w", err))
 			}
 		}()
@@ -136,4 +143,16 @@ func releaseSessionLock(db *gorm.DB, dialect, key string) error {
 		return fmt.Errorf("MySQL migration named lock no longer held by session")
 	}
 	return nil
+}
+
+// discardLockedSession forces database/sql to discard the pinned driver
+// connection when its advisory lock may still be held on the server.
+// Closing sql.Conn normally only returns it to the pool, which is unsafe
+// if the release query failed without a confirmed unlock.
+func discardLockedSession(db *gorm.DB) {
+	conn, ok := db.Statement.ConnPool.(*sql.Conn)
+	if !ok {
+		return
+	}
+	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 }
