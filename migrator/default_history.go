@@ -47,6 +47,12 @@ func newDefaultHistoryStore(db *gorm.DB, logger *slog.Logger, table string) *Def
 	}
 }
 
+// withDB binds history writes to the migration transaction. This keeps the
+// schema change and its success marker atomic on transactional databases.
+func (h *DefaultHistoryStore) withDB(db *gorm.DB) *DefaultHistoryStore {
+	return &DefaultHistoryStore{db: db, logger: h.logger, table: h.table}
+}
+
 // EnsureTable 确保所选迁移历史表存在
 func (h *DefaultHistoryStore) EnsureTable(ctx context.Context) error {
 	if h.db.WithContext(ctx).Migrator().HasTable(h.table) {
