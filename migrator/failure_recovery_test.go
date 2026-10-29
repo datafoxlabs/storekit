@@ -208,3 +208,42 @@ func TestHistoryFailureWriteErrorIsNotDiscarded(t *testing.T) {
 	require.ErrorIs(t, err, upErr)
 	require.ErrorIs(t, err, historyErr)
 }
+
+func TestContinueOnErrorPreservesPriorFailureWhenHistorySuccessWriteFails(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	upErr := errors.New("first migration failed")
+	historyErr := errors.New("second migration history write failed")
+	history := &faultingHistoryStore{
+		HistoryStore:     migrator.NewDefaultHistoryStore(db, slog.Default()),
+		recordSuccessErr: historyErr,
+	}
+	engine := migrator.New(db, slog.Default(),
+		migrator.WithOptions(&migrator.Options{ContinueOnError: true}),
+		migrator.WithHistoryFactory(func(*gorm.DB, *slog.Logger, migrator.Dialect) migrator.HistoryStore {
+			return history
+		}),
+	)
+
+	thirdRan := false
+	err := engine.Run(ctx,
+		&migrator.Migration{
+			ID: "prior_failure",
+			Up: func(context.Context, migrator.MigrationContext) error { return upErr },
+		},
+		&migrator.Migration{
+			ID: "history_write_failure",
+			Up: func(context.Context, migrator.MigrationContext) error { return nil },
+		},
+		&migrator.Migration{
+			ID: "must_not_run",
+			Up: func(context.Context, migrator.MigrationContext) error {
+				thirdRan = true
+				return nil
+			},
+		},
+	)
+	require.ErrorIs(t, err, upErr, "return must retain prior migration errors")
+	require.ErrorIs(t, err, historyErr, "return must retain the history-write error")
+	require.False(t, thirdRan, "history success-write failure must stop the batch")
+}
