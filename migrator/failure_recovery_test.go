@@ -129,7 +129,7 @@ func TestCustomHistoryCommitFailureIsReturnedAndRecoverable(t *testing.T) {
 	ctx := context.Background()
 	cause := errors.New("injected success marker failure")
 	history := &faultingHistoryStore{
-		HistoryStore: migrator.NewDefaultHistoryStore(db, slog.Default()),
+		HistoryStore:     migrator.NewDefaultHistoryStore(db, slog.Default()),
 		recordSuccessErr: cause,
 	}
 	engine := migrator.New(db, slog.Default(),
@@ -194,7 +194,7 @@ func TestHistoryFailureWriteErrorIsNotDiscarded(t *testing.T) {
 	upErr := errors.New("up failure")
 	historyErr := errors.New("history failure")
 	history := &faultingHistoryStore{
-		HistoryStore: migrator.NewDefaultHistoryStore(db, slog.Default()),
+		HistoryStore:     migrator.NewDefaultHistoryStore(db, slog.Default()),
 		recordFailureErr: historyErr,
 	}
 	engine := migrator.New(db, slog.Default(),
