@@ -13,7 +13,8 @@ test-integration-ci: check-fmt check-tools
 	python3 scripts/verify-modules.py --ci-services
 
 check-fmt:
-	@test -z "$$(find clickhouse migrator sqlstore integration -name '*.go' -exec gofmt -l {} +)" || { echo 'Run gofmt on Go sources'; exit 1; }
+	@unformatted="$(find clickhouse migrator sqlstore integration -name '*.go' -exec gofmt -l {} +)"; \
+		test -z "$unformatted" || { printf 'Run gofmt on:\\n%s\\n' "$unformatted"; exit 1; }
 
 check-tools:
 	python3 -m unittest discover -s scripts -p 'test_*.py' -v
