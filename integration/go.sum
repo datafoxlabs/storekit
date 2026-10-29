@@ -10,7 +10,7 @@ github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UF
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/datafoxlabs/storekit/clickhouse/schema v0.3.1-0.local h1:qBMkeQizHSbV+/BkZZrxaKcvcXxfsmaQqxc4RrBmnRo=
 github.com/datafoxlabs/storekit/clickhouse/schema v0.3.1-0.local/go.mod h1:zPO6wtFFKYHxuWm2vMmXCNy3IGLbDHfQ+BhfTxO7yGM=
-github.com/datafoxlabs/storekit/migrator v0.1.1-0.local h1:WmOiPbp118QTHEvoTAjJ2hux/zP7ky8O2j//hMDsMdQ=
+github.com/datafoxlabs/storekit/migrator v0.1.1-0.local h1:e16BKcaH6Y8kyUYQ57FLbnUk1PnQ49WSVyH/ZIlJW7E=
 github.com/datafoxlabs/storekit/migrator v0.1.1-0.local/go.mod h1:KzpUqQeBqYd2sJ/vtiSWFKc1N5wuzgNyztD3KwxLlMI=
 github.com/datafoxlabs/storekit/sqlstore v0.1.1-0.local h1:7VHIj89oxO26zm40abpAC8BY1ZJSS+XlV+YZCIyLH7I=
 github.com/datafoxlabs/storekit/sqlstore v0.1.1-0.local/go.mod h1:6VNFCOgTIdN8q9tSz+iuzIyyhqr2tarh0pGIDFPITw0=
