@@ -1,0 +1,17 @@
+{
+  "catalog": {
+    "kind": "git",
+    "ref": "refs/tags/v1.7.1",
+    "url": "https://github.com/XiaoWeiKIN/EngineeringSpecifications.git"
+  },
+  "owner": "repo-foundry",
+  "project_specs": [],
+  "specs": [
+    "core/semantic-naming",
+    "core/data-boundaries",
+    "languages/go",
+    "languages/go/functional-options",
+    "documentation/technical-documentation"
+  ],
+  "version": 1
+}

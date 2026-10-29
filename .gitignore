@@ -1,0 +1,12 @@
+go.work
+go.work.sum
+.env
+*.test
+__pycache__/
+.cache/
+verification.log
+
+# RepoFoundry runtime file locks (state and manifests remain versioned)
+/docs/.engineering/lock
+/docs/.epctl/lock
+/docs/.designctl/lock
