@@ -6,7 +6,15 @@ Import path:
 
 `github.com/datafoxlabs/storekit/clickhouse/schema`
 
-Scope:
+## Installation
+
+With Go 1.25.8 or newer, run this command in your application's Go module:
+
+```sh
+go get github.com/datafoxlabs/storekit/clickhouse/schema@v0.3.0
+```
+
+## Scope
 
 - ClickHouse table definitions
 - ClickHouse materialized view definitions
@@ -20,6 +28,6 @@ Set `Table.Timezone` or pass a timezone to `ColumnType.StringWithTimezone` when 
 
 ## Versioning
 
-This is an independent nested Go module. No version tag has been published. Consumers can use a public commit or `@main`; Go records the selected commit as a pseudo-version.
+This is an independent nested Go module. The published version is [v0.3.0](https://github.com/datafoxlabs/storekit/tree/clickhouse%2Fschema%2Fv0.3.0), identified by the module-prefixed tag `clickhouse/schema/v0.3.0`.
 
-Future releases use module-prefixed tags, such as `clickhouse/schema/v0.3.0`. The candidate version used by the repository verification script is not a published release.
+Repository verification uses separate `-0.local` candidate versions for the current working tree. Those temporary artifacts do not change published versions; see the [verification commands](../../README.md#验证).

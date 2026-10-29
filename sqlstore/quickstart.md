@@ -2,6 +2,12 @@
 
 本文档通过实例演示 `sqlstore` 模块的常见用法。完整 API 参考请查阅 [README.md](./README.md)。
 
+使用 Go 1.25.8 或更新版本，在应用的 Go module 中安装已发布版本：
+
+```sh
+go get github.com/datafoxlabs/storekit/sqlstore@v0.1.0
+```
+
 ## 1. 创建 Store
 
 ### 通过 Open（生产用法）

@@ -1,6 +1,16 @@
 # migrator
 
-通用 GORM 迁移引擎，支持 PostgreSQL、MySQL、SQLite 和 ClickHouse。当前候选版本 `v0.1.0` 尚未发布。
+通用 GORM 迁移引擎，支持 PostgreSQL、MySQL、SQLite 和 ClickHouse。当前已发布版本为 [v0.1.0](https://github.com/datafoxlabs/storekit/tree/migrator%2Fv0.1.0)，对应 Git tag `migrator/v0.1.0`。
+
+## 安装
+
+需要 Go 1.25.8 或更新版本。在使用方的 Go module 中执行：
+
+```sh
+go get github.com/datafoxlabs/storekit/migrator@v0.1.0
+```
+
+## 使用
 
 ```go
 engine := migrator.New(db, logger,

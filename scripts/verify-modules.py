@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Verify three unpublished libraries and the test-only integration module.
+"""Verify three libraries and the test-only integration module.
 
---tidy updates module metadata using the same isolated release graph. It does not
+--tidy updates module metadata using the same isolated candidate graph. It does not
 publish anything. The default verifies tidy/no-diff, unit tests, and a consumer
 which downloads every candidate from a temporary Go proxy.
 """
@@ -20,11 +20,11 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "github.com/datafoxlabs/storekit"
-# Dependency order and candidate versions. Publish subdirectory-prefixed tags.
+# Dependency order and local verification versions. Never publish these tags.
 MODULES = {
-    "clickhouse/schema": "v0.3.0",
-    "migrator": "v0.1.0",
-    "sqlstore": "v0.1.0",
+    "clickhouse/schema": "v0.3.1-0.local",
+    "migrator": "v0.1.1-0.local",
+    "sqlstore": "v0.1.1-0.local",
 }
 
 
@@ -100,7 +100,7 @@ def download_pinned_dependencies(cache, env):
 
 
 def normalize_metadata(relative, source, env, write):
-    # Candidate checksums change with their sources until the release is sealed.
+    # Local candidate checksums change with their working-tree sources.
     # Only --tidy permits refreshing them; the default must detect that drift.
     sums = source / "go.sum"
     if write and sums.exists():

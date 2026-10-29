@@ -29,7 +29,7 @@ class VerificationBoundaryTests(unittest.TestCase):
 
     def test_pinned_dependencies_are_downloaded_once_without_candidate_versions(self):
         metadata = json.dumps({"Require": [
-            {"Path": VERIFY.BASE + "/clickhouse/schema", "Version": "v0.3.0"},
+            {"Path": VERIFY.BASE + "/clickhouse/schema", "Version": VERIFY.MODULES["clickhouse/schema"]},
             {"Path": VERIFY.BASE + "/migrator", "Version": "v0.0.0-20000101000000-0123456789ab"},
         ]})
         calls = []

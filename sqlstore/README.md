@@ -1,6 +1,14 @@
 # sqlstore
 
-基于 GORM 提供事务传播、重试、连接池、OpenTelemetry 追踪和结构化日志。此 module 尚未发布，当前候选版本为 `v0.1.0`。
+基于 GORM 提供事务传播、重试、连接池、OpenTelemetry 追踪和结构化日志。当前已发布版本为 [v0.1.0](https://github.com/datafoxlabs/storekit/tree/sqlstore%2Fv0.1.0)，对应 Git tag `sqlstore/v0.1.0`。
+
+## 安装
+
+需要 Go 1.25.8 或更新版本。在使用方的 Go module 中执行：
+
+```sh
+go get github.com/datafoxlabs/storekit/sqlstore@v0.1.0
+```
 
 ## 打开连接
 

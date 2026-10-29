@@ -23,6 +23,7 @@ Use fast-fail boundaries and keep common execution paths simple. Preserve concur
 - `migrator`: migration execution, depends on schema.
 - `sqlstore`: GORM wrapper, depends on migrator; driver packages are opt-in.
 - `integration`: test-only consumer of the three libraries; never publish an integration tag.
+- Versions ending in `-0.local` are temporary verification artifacts, not release tags.
 - No root Go module. Do not commit go.work or module replace directives.
 - Production libraries must not import integration or host applications.
 - Application defaults belong to the host. Inject the TracerProvider; do not use a global provider.
@@ -35,7 +36,7 @@ Use fast-fail boundaries and keep common execution paths simple. Preserve concur
 - `make test`: formatting, Python boundary tests, four-module tidy/no-diff, vet/race and driver isolation.
 - `make test-integration`: above checks plus disposable Docker PostgreSQL/MySQL/ClickHouse services.
 - `make test-integration-ci`: same tests using isolated GitHub Actions service aliases; rejects non-CI execution.
-- `make tidy`: explicitly refresh unpublished candidate checksums and module metadata.
+- `make tidy`: explicitly refresh local verification candidate checksums and module metadata.
 - `make check-harness`: pinned RepoFoundry Harness, Spec and engineering-document validators.
 - `.github/workflows/verify.yml` has validation jobs only; there is no release or deployment job.
 

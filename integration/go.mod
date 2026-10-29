@@ -3,9 +3,9 @@ module github.com/datafoxlabs/storekit/integration
 go 1.25.8
 
 require (
-	github.com/datafoxlabs/storekit/clickhouse/schema v0.3.0
-	github.com/datafoxlabs/storekit/migrator v0.1.0
-	github.com/datafoxlabs/storekit/sqlstore v0.1.0
+	github.com/datafoxlabs/storekit/clickhouse/schema v0.3.1-0.local
+	github.com/datafoxlabs/storekit/migrator v0.1.1-0.local
+	github.com/datafoxlabs/storekit/sqlstore v0.1.1-0.local
 	go.opentelemetry.io/otel/trace v1.44.0
 	gorm.io/gorm v1.31.1
 )
