@@ -16,7 +16,6 @@ import (
 	"github.com/datafoxlabs/storekit/sqlstore/mysql"
 	"github.com/datafoxlabs/storekit/sqlstore/postgres"
 	"go.opentelemetry.io/otel/trace/noop"
-	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
@@ -55,8 +54,8 @@ func TestMigrationLockSessionLoss(t *testing.T) {
 			table := "storekit_session_loss_" + fixture.name
 			history := "storekit_loss_history_" + fixture.name
 			t.Cleanup(func() {
-				check(t, killer.GetDB().Exec("DROP TABLE IF EXISTS " + table).Error)
-				check(t, killer.GetDB().Exec("DROP TABLE IF EXISTS " + history).Error)
+				check(t, killer.GetDB().Exec("DROP TABLE IF EXISTS "+table).Error)
+				check(t, killer.GetDB().Exec("DROP TABLE IF EXISTS "+history).Error)
 			})
 			engine := migrator.New(worker.GetDB(), log, migrator.WithHistoryTable(history))
 			var calls int
@@ -65,7 +64,7 @@ func TestMigrationLockSessionLoss(t *testing.T) {
 				ID: "session_lost_after_ddl",
 				Up: func(_ context.Context, mg migrator.MigrationContext) error {
 					calls++
-					if err := mg.RawSQL("CREATE TABLE IF NOT EXISTS " + table + " (id INTEGER)"); err != nil {
+					if err := mg.RawSQL("CREATE TABLE IF NOT EXISTS "+table+" (id INTEGER)"); err != nil {
 						return err
 					}
 					if !killOnce {
