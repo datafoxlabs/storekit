@@ -14,7 +14,7 @@ test-integration-ci: check-fmt check-tools
 
 check-fmt:
 	@unformatted="$$(find clickhouse migrator sqlstore integration -name '*.go' -exec gofmt -l {} +)"; \
-		test -z "$$unformatted" || { printf 'Run gofmt on:\n%s\n' "$unformatted"; find clickhouse migrator sqlstore integration -name '*.go' -exec gofmt -d {} +; exit 1; }
+		test -z "$$unformatted" || { printf 'Run gofmt on:\n%s\n' "$$unformatted"; find clickhouse migrator sqlstore integration -name '*.go' -exec gofmt -d {} +; exit 1; }
 
 check-tools:
 	python3 -m unittest discover -s scripts -p 'test_*.py' -v
