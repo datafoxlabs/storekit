@@ -1,39 +1,96 @@
 # migrator
 
-通用 GORM 迁移引擎，支持 PostgreSQL、MySQL、SQLite 和 ClickHouse。
-
-**版本说明：** 已发布版本为 [v0.1.0](https://github.com/datafoxlabs/storekit/tree/migrator%2Fv0.1.0)，对应 Git tag `migrator/v0.1.0`。历史记录事务一致性、错误传播和 `ContinueOnError` 错误聚合修复已通过 [PR #1](https://github.com/datafoxlabs/storekit/pull/1) 合入 `main`（[c7ece647](https://github.com/datafoxlabs/storekit/commit/c7ece647e6d54ae97b8bff68ec08b430bff7865a)），**但尚未包含在 `v0.1.0` tag 中**。下文的改进后行为以 `main` 代码为依据，不是旧 tag 的兼容承诺。
+`migrator` 是基于 GORM 的数据库结构迁移引擎，支持 **PostgreSQL、MySQL、SQLite 和 ClickHouse**。它提供迁移定义、方言适配、执行历史、重复执行跳过和可选回滚。
 
 ## 安装
 
-需要 Go 1.25.8 或更新版本。在使用方的 Go module 中执行：
+需要 Go **1.25.8** 或更新版本：
 
-```sh
+```bash
 go get github.com/datafoxlabs/storekit/migrator@v0.1.0
 ```
 
-## 使用（由宿主单执行者迁移流程调用）
+上述命令安装已发布的 `v0.1.0`。本页的迁移一致性与错误处理说明基于当前 `main` 源码；已发布版本在这些细节上可能不同。升级前请核对实际依赖版本。
+
+## 定义和执行迁移
+
+在宿主创建好 `*gorm.DB` 后，定义具有稳定 ID 的迁移：
+
+```go
+func applyMigrations(ctx context.Context, db *gorm.DB) error {
+    migration := &migrator.Migration{
+        ID:          "20261029_create_users",
+        Description: "Create users table",
+        Up: func(_ context.Context, mg migrator.MigrationContext) error {
+            return mg.CreateTable(&migrator.Table{
+                Name: "users",
+                Columns: []*migrator.Column{
+                    {Name: "id", Type: migrator.TypeBigInt, PrimaryKey: true, AutoIncrement: true},
+                    {Name: "email", Type: migrator.TypeVarchar, Size: 255, NotNull: true},
+                },
+            })
+        },
+        Down: func(_ context.Context, mg migrator.MigrationContext) error {
+            return mg.DropTable("users")
+        },
+    }
+
+    engine := migrator.New(db, slog.Default())
+    return engine.Run(ctx, migration)
+}
+```
+
+示例需导入 `context`、`log/slog`、`gorm.io/gorm` 和 `github.com/datafoxlabs/storekit/migrator`。由部署流程调用该函数，并在返回错误时停止部署。
+
+`MigrationContext` 支持 `CreateTable`、`AddColumn`、`AddIndex`、`RawSQL` 和 `Exec` 等操作。重复运行同一迁移时，引擎会检查历史记录并跳过已成功的 ID。
+
+### 历史记录和回滚
+
+默认历史表为 `migration_log`。可以为不同使用方设置不同的历史表：
 
 ```go
 engine := migrator.New(db, logger,
     migrator.WithHistoryTable("worker_migration_log"),
 )
-if err := engine.Run(ctx, migrations...); err != nil {
-    return err // 中止部署；不能把失败视为迁移完成
-}
+err := engine.Run(ctx, migrations...)
+history, err := engine.GetHistory(ctx, 20)
 ```
 
-示例中的 `db` 为已连接的 `*gorm.DB`，`logger` 为非空 `*slog.Logger`，`migrations` 为 `*migrator.Migration` 切片。此代码片段须放在返回 `error` 的迁移函数内，不应由每个业务副本在启动时并发调用。Migration ID 一旦投入使用应保持稳定。
+`Rollback(ctx, migrationID, migration)` 会调用相应的 `Down`，成功后删除对应历史记录。迁移未定义 `Down` 时无法回滚。
 
-默认历史表仍是 `migration_log`。`WithHistoryTable` 接受不带数据库或 schema 前缀的标识符（字母或下划线开头，随后为字母、数字或下划线）。非法标识符在 `New` 中 panic，发生在 SQL 执行前。自定义 `WithHistoryFactory` 自行负责历史存储，不能与非默认的 `WithHistoryTable` 同用。
+`WithHistoryTable` 只接受不带数据库/schema 前缀的表名：以字母或下划线开头，仅包含字母、数字和下划线。无效表名会在 `New` 时触发 panic。切换历史表**不会自动迁移历史数据**；在切换前必须处理旧记录，否则可能再次执行已完成的迁移。
 
-切换历史表不会自动搬迁记录。已有应用切换前必须迁移其原历史记录，否则已执行的迁移可能再次运行。共用历史表的应用必须使用互不冲突的 migration ID 前缀；`DatabaseRelational`/`DatabaseClickHouse` 只是宿主选择目标的标记，不写入历史表，也不使引擎自动连接另一数据库。
+### 失败策略
 
-关系型历史表按 `migration_id` upsert；成功重试覆盖旧失败。ClickHouse 历史追加记录，`IsApplied` 在存在任一成功记录时返回 true，失败列表保留所有失败记录；删除依赖异步 mutation，不能假设立即完成。**`main` 中的 PR #1 已改变事务与失败处理行为**，详见下文；历史存储的数据格式及 ClickHouse 的 append-only 判定语义没有改为“以最后一条为准”。
+```go
+engine := migrator.New(db, logger,
+    migrator.WithOptions(&migrator.Options{
+        ContinueOnError: false,
+        SkipHistoryCheck: false,
+    }),
+)
+```
 
-## 时区与兼容
+- `ContinueOnError=false`（默认）：迁移失败时停止执行并返回错误。
+- `ContinueOnError=true`：继续尝试后续迁移；当前 `main` 最终仍返回非空的聚合错误，可通过 `errors.Is/As` 检查失败原因。如果成功历史记录无法写入，立即停止执行，并保留此前的错误。
+- `SkipHistoryCheck=true`：跳过已执行判断，**可能重复运行迁移**，仅用于明确需要重新执行的场景。
 
-生成式 ClickHouse DDL 默认不指定时区，由服务端决定。原宿主若依赖特定时区，必须显式传入：
+## 数据库兼容性和恢复
+
+| 数据库 | 迁移事务与历史记录 |
+|---|---|
+| PostgreSQL、SQLite | 在当前 `main` 上，默认关系型历史存储与 `Up` / `Down` 在同一事务中更新；历史操作失败会使事务失败 |
+| MySQL | DDL 可能隐式提交，Schema 修改与历史记录不保证原子性 |
+| ClickHouse | DDL 不提供多语句事务；历史记录采用追加写入，删除依赖异步 mutation |
+| 自定义 `HistoryStore` | 由使用方负责历史存储的事务与一致性语义 |
+
+对于非事务 DDL，错误不代表所有操作都已回滚。恢复前应检查 Schema 和历史记录，优先使用可重入的迁移语句，避免直接重放非幂等 SQL。
+
+`DatabaseRelational` 和 `DatabaseClickHouse` 是供宿主识别迁移目标的标记；**引擎不会据此自动切换数据库连接**。
+
+## ClickHouse 时区
+
+生成式 DDL 默认不显式设置时区。如需固定迁移使用的时区：
 
 ```go
 engine := migrator.New(clickhouseDB, logger,
@@ -41,25 +98,10 @@ engine := migrator.New(clickhouseDB, logger,
 )
 ```
 
-该选项只影响 `MigrationContext.CreateTable`/`AddColumn` 生成的时间列；直接使用 `ClickHouseDialect` 时设置其 `Timezone` 字段。`New` 对未知时区或向非 ClickHouse 引擎设置非空时区 panic。固定 `RawSQL` 和迁移历史表的 DDL 不受此选项影响。显式设置原时区可保留原生成 SQL。
+该选项影响 `MigrationContext.CreateTable` / `AddColumn` 生成的时间列，不改写手工编写的 `RawSQL`。未知时区或非 ClickHouse 连接使用非空时区选项会在 `New` 时触发 panic。
 
-`DatabasePostgres` 已改名为 `DatabaseRelational`，值由 `"postgres"` 改为 `"relational"`。空目标仍代表关系型数据库。该值从未写入迁移历史，不需要更改已存储的 ID、描述、状态或时间。
+## 部署建议
 
-使用 `sqlstore` 的应用可继续调用 `RunMigrations*`。需要配置历史表或时区时，用 `migrator.New(store.GetDB(), logger, ...)` 创建引擎。
+**同一个数据库只运行一个迁移执行者。** 推荐由独立的 Migration Job 执行迁移，并在确认成功后再启动新版本服务。不要在多个应用副本启动时并发调用 `Run`；`IsApplied` 仅用于历史状态检查，不提供跨实例互斥。
 
-## ClickHouse 建表目标
-
-通用 `CreateTable` 使用连接的当前数据库，不生成空库名前导点；`schema.Table` 显式填写 `Database` 时仍生成原有的限定表名。`CreateTable`、读写、重复执行及 `Down` 已纳入 ClickHouse 26.2 临时实例测试，同时覆盖默认时区与显式时区。现有已限定数据库的 DDL 渲染保持不变。
-
-## 迁移状态一致性与恢复（`main`，未发布至 `v0.1.0`）
-
-- **PostgreSQL / SQLite**：使用内置 `DefaultHistoryStore` 时，`Up` 与成功历史记录在同一事务提交；`Down` 与删除历史记录在同一事务提交。历史操作失败使整个事务失败，避免 DDL 与成功标记部分提交。
-- **MySQL / ClickHouse 与自定义 `HistoryStore`**：不保证 DDL 与历史记录原子提交。即使 `Run` / `Rollback` 返回错误，部分 SQL 也可能生效；必须检查实际数据库状态后选择修复或重试，不能直接重放非幂等 DDL。
-- **`ContinueOnError`**：默认 `false`，迁移失败立即返回；为 `true` 时继续后续迁移，最终仍返回非空的聚合错误，并保留 `errors.Is/As` 可识别的原因。**成功历史写入失败会立即停止后续迁移**，并合并此前累计的错误。此返回行为不同于已发布的 `v0.1.0`，升级时须检查调用方是否依赖旧的 `nil` 返回。
-- **历史表切换**：修改 `WithHistoryTable` 不会自动搬迁历史记录，必须先转移旧状态，避免已执行迁移再次运行。
-
-## 部署边界：单执行者
-
-`migrator` **不负责跨进程或跨应用实例加锁**。推荐由宿主执行独立的 Migration Job：确定单执行者及迁移窗口 → 执行迁移 → 确认调用返回 `nil`，必要时检查 Schema 和历史记录 → 再允许新版本实例处理请求。出现错误时应停止部署，核查数据库实际状态；尤其需要针对 MySQL/ClickHouse 的非事务 DDL 制定幂等恢复策略。
-
-不要让多个业务副本在启动时并发执行同一组迁移。`IsApplied` 是历史状态检查，不是互斥锁。此前提出的跨实例锁 PR [#3](https://github.com/datafoxlabs/storekit/pull/3)、[#4](https://github.com/datafoxlabs/storekit/pull/4) 均已关闭且未合并，**不属于当前 `main`**。
+详细边界参见 [可靠性说明](../docs/RELIABILITY.md)。
