@@ -24,9 +24,9 @@ type HistoryStore interface {
 
 // Migrator 核心迁移引擎
 type Migrator struct {
-	db      *gorm.DB
-	logger  *slog.Logger
-	dialect Dialect
+	db           *gorm.DB
+	logger       *slog.Logger
+	dialect      Dialect
 	history      HistoryStore
 	historyTable string
 	options      *Options
