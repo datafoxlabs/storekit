@@ -1,0 +1,36 @@
+# migrator
+
+通用 GORM 迁移引擎，支持 PostgreSQL、MySQL、SQLite 和 ClickHouse。当前候选版本 `v0.1.0` 尚未发布。
+
+```go
+engine := migrator.New(db, logger,
+    migrator.WithHistoryTable("worker_migration_log"),
+)
+err := engine.Run(ctx, migrations...)
+```
+
+默认历史表仍是 `migration_log`。`WithHistoryTable` 接受不带数据库或 schema 前缀的标识符（字母或下划线开头，随后为字母、数字或下划线）。非法标识符在 `New` 中 panic，发生在 SQL 执行前。自定义 `WithHistoryFactory` 自行负责历史存储，不能与非默认的 `WithHistoryTable` 同用。
+
+切换历史表不会自动搬迁记录。已有应用切换前必须迁移其原历史记录，否则已执行的迁移可能再次运行。共用历史表的应用必须使用互不冲突的 migration ID 前缀；`DatabaseRelational`/`DatabaseClickHouse` 只是宿主选择目标的标记，不写入历史表，也不使引擎自动连接另一数据库。
+
+关系型历史表继续按 `migration_id` upsert；成功重试覆盖旧失败。ClickHouse 历史继续追加记录，`IsApplied` 在存在任一成功记录时返回 true，失败列表保留所有失败记录；删除仍使用异步 mutation。本轮没有把其语义改成“以最后一条记录为准”。事务、执行顺序和失败处理沿用原实现。
+
+## 时区与兼容
+
+生成式 ClickHouse DDL 默认不指定时区，由服务端决定。原宿主若依赖特定时区，必须显式传入：
+
+```go
+engine := migrator.New(clickhouseDB, logger,
+    migrator.WithClickHouseTimezone("Asia/Shanghai"),
+)
+```
+
+该选项只影响 `MigrationContext.CreateTable`/`AddColumn` 生成的时间列；直接使用 `ClickHouseDialect` 时设置其 `Timezone` 字段。`New` 对未知时区或向非 ClickHouse 引擎设置非空时区 panic。固定 `RawSQL` 和迁移历史表的 DDL 不受此选项影响。显式设置原时区可保留原生成 SQL。
+
+`DatabasePostgres` 已改名为 `DatabaseRelational`，值由 `"postgres"` 改为 `"relational"`。空目标仍代表关系型数据库。该值从未写入迁移历史，不需要更改已存储的 ID、描述、状态或时间。
+
+使用 `sqlstore` 的应用可继续调用 `RunMigrations*`。需要配置历史表或时区时，用 `migrator.New(store.GetDB(), logger, ...)` 创建引擎。
+
+## ClickHouse 建表目标
+
+通用 `CreateTable` 使用连接的当前数据库，不生成空库名前导点；`schema.Table` 显式填写 `Database` 时仍生成原有的限定表名。`CreateTable`、读写、重复执行及 `Down` 已纳入 ClickHouse 26.2 临时实例测试，同时覆盖默认时区与显式时区。现有已限定数据库的 DDL 渲染保持不变。
