@@ -12,3 +12,10 @@ storekit 是嵌入式库，不定义宿主服务的 SLO。宿主拥有配置、�
 验证入口为 `make test` 和 `make test-integration`，测试定义在 sqlstore/*_test.go、migrator/*_test.go 与 integration。
 服务端测试记录实际版本和镜像身份，ClickHouse 强制 26.2.*。历史验证不能替代修改后的当前验收。
 生产使用方接入、业务数据恢复演练和运行 SLO 未由本仓库验收；不把本地或 CI 测试声明为生产验收。
+
+### 迁移执行与历史一致性
+
+- 默认关系型 `HistoryStore` 在支持事务的方言上将 `Up`/`Down` 和对应成功记录写入/删除放在同一个事务中。历史记录写入失败会使 DDL 回滚；失败历史记录单独写入，不参与已回滚的执行事务。
+- 对 MySQL/ClickHouse 或自定义 `HistoryStore`，历史写入错误会明确返回，但已经执行的 DDL 仍可能生效。恢复前需要检查 Schema 实际状态，不可无条件重新执行非幂等 SQL。
+- `ContinueOnError` 不会吞掉执行失败：它会继续后续迁移并在完成时返回聚合错误；成功历史写入失败直接中断。
+- **当前不提供跨实例迁移锁。** 同一数据库的自动迁移必须由宿主调度为单执行者。Crash recovery、服务重启和并发启动需要额外端到端演练。
