@@ -64,7 +64,7 @@ func TestMigrationLockSessionLoss(t *testing.T) {
 				ID: "session_lost_after_ddl",
 				Up: func(_ context.Context, mg migrator.MigrationContext) error {
 					calls++
-					if err := mg.RawSQL("CREATE TABLE IF NOT EXISTS "+table+" (id INTEGER)"); err != nil {
+					if err := mg.RawSQL("CREATE TABLE IF NOT EXISTS " + table + " (id INTEGER)"); err != nil {
 						return err
 					}
 					if !killOnce {
