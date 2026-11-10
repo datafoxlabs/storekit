@@ -105,13 +105,13 @@ func (d *MySQLDialect) CreateTableSQL(table *Table) ([]string, error) {
 	statements = append(statements, createTableSQL)
 
 	if len(table.ForeignKeys) == 0 {
-	for _, idx := range table.Indexes {
-		indexSQL, err := d.AddIndexSQL(table.Name, idx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate index SQL: %w", err)
+		for _, idx := range table.Indexes {
+			indexSQL, err := d.AddIndexSQL(table.Name, idx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate index SQL: %w", err)
+			}
+			statements = append(statements, indexSQL...)
 		}
-		statements = append(statements, indexSQL...)
-	}
 	}
 
 	return statements, nil
