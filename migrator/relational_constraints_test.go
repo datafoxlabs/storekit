@@ -7,14 +7,14 @@ import (
 
 func TestRelationalConstraints(t *testing.T) {
 	table := &Table{
-		Name:        "children",
-		Columns:     []*Column{
+		Name: "children",
+		Columns: []*Column{
 			{Name: "workspace", Type: TypeVarchar, Size: 32, PrimaryKey: true, NotNull: true},
 			{Name: "child_id", Type: TypeVarchar, Size: 32, PrimaryKey: true, NotNull: true},
 			{Name: "parent_id", Type: TypeVarchar, Size: 32, NotNull: true},
 			{Name: "size_bytes", Type: TypeBigInt, NotNull: true},
 		},
-		Indexes:     []*Index{{Name: "children_parent_idx", Columns: []string{"workspace", "parent_id"}}},
+		Indexes: []*Index{{Name: "children_parent_idx", Columns: []string{"workspace", "parent_id"}}},
 		ForeignKeys: []*ForeignKey{{
 			Name:              "children_parent_fk",
 			Columns:           []string{"workspace", "parent_id"},
@@ -24,8 +24,10 @@ func TestRelationalConstraints(t *testing.T) {
 		Checks:      []*Check{{Name: "children_positive_size", Expression: "size_bytes > 0"}},
 	}
 	for _, tc := range []struct {
-		name       string
-		dialect    interface{ CreateTableSQL(*Table) ([]string, error) }
+		name    string
+		dialect interface {
+			CreateTableSQL(*Table) ([]string, error)
+		}
 		fk         string
 		check      string
 		statements int
