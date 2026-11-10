@@ -34,11 +34,27 @@ type Column struct {
 	Comment       string
 }
 
+// ForeignKey describes a multi-column referential constraint.
+type ForeignKey struct {
+	Name              string
+	Columns           []string
+	ReferencedTable   string
+	ReferencedColumns []string
+}
+
+// Check describes a named SQL CHECK constraint.
+type Check struct {
+	Name       string
+	Expression string
+}
+
 // Table 表定义
 type Table struct {
 	Name           string
 	Columns        []*Column
 	Indexes        []*Index
+	ForeignKeys    []*ForeignKey
+	Checks         []*Check
 	PrimaryKeyName string
 	Engine         string
 	Charset        string
@@ -126,6 +142,27 @@ func (t *Table) Validate() error {
 	for _, col := range t.Columns {
 		if err := col.Validate(); err != nil {
 			return fmt.Errorf("invalid column in table %s: %w", t.Name, err)
+		}
+	}
+	for _, fk := range t.ForeignKeys {
+		if fk == nil || fk.Name == "" || fk.ReferencedTable == "" ||
+			len(fk.Columns) == 0 || len(fk.Columns) != len(fk.ReferencedColumns) {
+			return fmt.Errorf("invalid foreign key in table %s", t.Name)
+		}
+		for _, name := range fk.Columns {
+			if !t.HasColumn(name) {
+				return fmt.Errorf("foreign key %s references missing local column %s", fk.Name, name)
+			}
+		}
+		for _, name := range fk.ReferencedColumns {
+			if name == "" {
+				return fmt.Errorf("foreign key %s has an empty referenced column", fk.Name)
+			}
+		}
+	}
+	for _, check := range t.Checks {
+		if check == nil || check.Name == "" || check.Expression == "" {
+			return fmt.Errorf("invalid CHECK constraint in table %s", t.Name)
 		}
 	}
 	return nil

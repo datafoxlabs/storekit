@@ -69,6 +69,34 @@ func (d *MySQLDialect) CreateTableSQL(table *Table) ([]string, error) {
 		}
 	}
 
+	// In MySQL, indexes must precede FKs to avoid implicit duplicate indexes.
+	// Preserve the existing standalone index rendering when no FKs are defined.
+	if len(table.ForeignKeys) > 0 {
+		for _, idx := range table.Indexes {
+			kind := "INDEX"
+			if idx.Unique {
+				kind = "UNIQUE INDEX"
+			}
+			constraints = append(constraints, fmt.Sprintf("%s %s (%s)",
+				kind, d.quoteIdentifier(idx.Name), strings.Join(d.quoteIdentifiers(idx.Columns), ", ")))
+		}
+	}
+
+	for _, fk := range table.ForeignKeys {
+		constraints = append(constraints, fmt.Sprintf(
+			"CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s)",
+			d.quoteIdentifier(fk.Name),
+			strings.Join(d.quoteIdentifiers(fk.Columns), ", "),
+			d.quoteIdentifier(fk.ReferencedTable),
+			strings.Join(d.quoteIdentifiers(fk.ReferencedColumns), ", "),
+		))
+	}
+	for _, check := range table.Checks {
+		constraints = append(constraints, fmt.Sprintf(
+			"CONSTRAINT %s CHECK (%s)", d.quoteIdentifier(check.Name), check.Expression,
+		))
+	}
+
 	createTableSQL := fmt.Sprintf("CREATE TABLE %s (\n  %s\n)",
 		d.quoteIdentifier(table.Name),
 		strings.Join(append(columns, constraints...), ",\n  "),
@@ -76,12 +104,14 @@ func (d *MySQLDialect) CreateTableSQL(table *Table) ([]string, error) {
 	createTableSQL += d.buildTableOptions(table)
 	statements = append(statements, createTableSQL)
 
-	for _, idx := range table.Indexes {
-		indexSQL, err := d.AddIndexSQL(table.Name, idx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate index SQL: %w", err)
+	if len(table.ForeignKeys) == 0 {
+		for _, idx := range table.Indexes {
+			indexSQL, err := d.AddIndexSQL(table.Name, idx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate index SQL: %w", err)
+			}
+			statements = append(statements, indexSQL...)
 		}
-		statements = append(statements, indexSQL...)
 	}
 
 	return statements, nil

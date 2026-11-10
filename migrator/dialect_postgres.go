@@ -63,6 +63,21 @@ func (d *PostgresDialect) CreateTableSQL(table *Table) ([]string, error) {
 		constraints = append(constraints, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(pkColumns, ", ")))
 	}
 
+	for _, fk := range table.ForeignKeys {
+		constraints = append(constraints, fmt.Sprintf(
+			"CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s)",
+			d.quoteIdentifier(fk.Name),
+			strings.Join(d.quoteIdentifiers(fk.Columns), ", "),
+			d.quoteIdentifier(fk.ReferencedTable),
+			strings.Join(d.quoteIdentifiers(fk.ReferencedColumns), ", "),
+		))
+	}
+	for _, check := range table.Checks {
+		constraints = append(constraints, fmt.Sprintf(
+			"CONSTRAINT %s CHECK (%s)", d.quoteIdentifier(check.Name), check.Expression,
+		))
+	}
+
 	createTableSQL := fmt.Sprintf("CREATE TABLE %s (\n  %s",
 		d.quoteIdentifier(table.Name),
 		strings.Join(append(columns, constraints...), ",\n  "))
