@@ -21,7 +21,7 @@ func TestRelationalConstraints(t *testing.T) {
 			ReferencedTable:   "parents",
 			ReferencedColumns: []string{"workspace", "parent_id"},
 		}},
-		Checks:      []*Check{{Name: "children_positive_size", Expression: "size_bytes > 0"}},
+		Checks: []*Check{{Name: "children_positive_size", Expression: "size_bytes > 0"}},
 	}
 	for _, tc := range []struct {
 		name    string
